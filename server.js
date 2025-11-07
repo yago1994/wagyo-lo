@@ -58,8 +58,14 @@ fastify.register(require("@fastify/view"), {
 
 // Load and parse SEO data
 const seo = require("./src/seo.json");
-if (seo.url === "glitch-default") {
-  seo.url = `https://${process.env.PROJECT_DOMAIN}.glitch.me`;
+
+const PORT = parseInt(process.env.PORT, 10) || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
+const PUBLIC_URL = process.env.PUBLIC_URL;
+
+if (!seo.url || seo.url === "glitch-default") {
+  const localHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+  seo.url = PUBLIC_URL || `http://${localHost}:${PORT}`;
 }
 
 /**
@@ -92,6 +98,12 @@ fastify.post("/", function (request, reply) {
   let revise = request.body.revise_bool;
   let previous_prompt = request.body.previous_prompt;
   let includes_scene = request.body.includes_scene;
+  console.log("Incoming request body", {
+    prompt,
+    revise,
+    hasPreviousPrompt: Boolean(previous_prompt),
+    includes_scene,
+  });
   
   // Need to detect if revise is true or false
   // API CALL AND GET RESULTS NEED TO HAPPEN HERE
@@ -105,16 +117,19 @@ fastify.post("/", function (request, reply) {
 });
 
 // Run the server and report out to the logs
-fastify.listen(
-  { port: process.env.PORT, host: "0.0.0.0" },
-  function (err, address) {
-    if (err) {
-      console.error(err);
-      process.exit(1);
-    }
-    console.log(`Your app is listening on ${address}`);
+fastify.listen({ port: PORT, host: HOST }, function (err, address) {
+  if (err) {
+    console.error(err);
+    process.exit(1);
   }
-);
+
+  const announcedHost = HOST === "0.0.0.0" ? "localhost" : HOST;
+  const resolvedUrl = PUBLIC_URL || `http://${announcedHost}:${PORT}`;
+  console.log(`Server running at ${resolvedUrl}`);
+  if (resolvedUrl !== address) {
+    console.log(`Bound address: ${address}`);
+  }
+});
 
 // Asynchronous function to wait for the API call to be finalized
 async function sendResultToHTML(reply, prompt, revise_bool, previous_prompt,includes_scene){
