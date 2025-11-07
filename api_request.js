@@ -8,6 +8,9 @@ Your main function is to facilitate users in creating 3D assemblages of primitiv
 
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
+  baseOptions: {
+    timeout: 15000,
+  },
 });
 
 const openai = new OpenAIApi(configuration);
@@ -68,15 +71,42 @@ async function api_request(prompt, revise_bool, previous_prompt_result, includes
     };
   }
 
-  const response = await openai.createChatCompletion(params);
-  const responseText = await response.data.choices[0].message.content;
+  try {
+    const response = await openai.createChatCompletion(params);
+    const responseText = await response.data.choices[0].message.content;
 
-  console.log(responseText);
-  console.log("OpenAI response received", {
-    characters: responseText.length,
-  });
+    console.log(responseText);
+    console.log("OpenAI response received", {
+      characters: responseText.length,
+    });
 
-  return responseText;
+    return responseText;
+  } catch (error) {
+    const status = error?.response?.status;
+    const message = error?.response?.data?.error?.message || error.message;
+    const code = error?.code;
+    const isTimeout =
+      code === "ETIMEDOUT" ||
+      (typeof message === "string" && message.toLowerCase().includes("timeout"));
+
+    console.error("OpenAI request failed", {
+      status,
+      code,
+      message,
+    });
+
+    if (isTimeout) {
+      const timeoutError = new Error("OpenAI request timed out");
+      timeoutError.code = "OPENAI_TIMEOUT";
+      timeoutError.cause = error;
+      throw timeoutError;
+    }
+
+    const wrapped = new Error("OpenAI request failed");
+    wrapped.code = "OPENAI_ERROR";
+    wrapped.cause = error;
+    throw wrapped;
+  }
 }
 
 module.exports = api_request;

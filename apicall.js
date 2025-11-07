@@ -40,7 +40,7 @@ async function openai_test(prompt,revise_bool) {
   let user_revise = "Can you revise this code for the following user prompt? And put it inside <a-scene> tags. "
   // let prompt = "Pyramid";
  
-  let api_key = "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";
+  let api_key = process.env.OPENAI_API_KEY;
 
   let model = "gpt-4o";
 

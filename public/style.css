@@ -1,3 +1,6 @@
+body {
+  cursor: default;
+}
 .chat-form {
   position: absolute;
   top: 50px;

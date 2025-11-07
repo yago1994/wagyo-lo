@@ -3,6 +3,8 @@
  * Check out the two endpoints this back-end API provides in fastify.get and fastify.post below
  */
 
+require("dotenv").config();
+
 const path = require("path");
 // const { Configuration, OpenAIApi } = require("openai");
 const api_request = require("./api_request.js");
@@ -133,8 +135,26 @@ fastify.listen({ port: PORT, host: HOST }, function (err, address) {
 
 // Asynchronous function to wait for the API call to be finalized
 async function sendResultToHTML(reply, prompt, revise_bool, previous_prompt,includes_scene){
-  const testresult = await api_request(prompt,revise_bool, previous_prompt,includes_scene);
-  
-  // This works!
-  reply.send({ result: testresult});
+  try {
+    const testresult = await api_request(
+      prompt,
+      revise_bool,
+      previous_prompt,
+      includes_scene
+    );
+
+    // This works!
+    reply.send({ result: testresult});
+  } catch (error) {
+    if (error?.code === "OPENAI_TIMEOUT") {
+      reply.status(504).send({ error: "openai_timeout" });
+      return;
+    }
+
+    console.error("Failed to fulfil OpenAI request", {
+      message: error?.message,
+      code: error?.code,
+    });
+    reply.status(500).send({ error: "openai_error" });
+  }
 }

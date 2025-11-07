@@ -1,8 +1,11 @@
 import { saveData } from "./firebase.js";
 
+const THREE = AFRAME.THREE;
+
 const sendBtn = document.getElementById("send-btn");
 const reviseBtn = document.getElementById("revise-btn");
 const positiveRatingButton = document.querySelector("#positive-rating");
+const statusBanner = document.getElementById("color-result");
 
 let apireturn;
 let userPrompt = "";
@@ -14,6 +17,65 @@ let iteration = 0;
 let previous_prompt;
 let previous_prompt_result;
 let revise_bool = false;
+let latestAssembly = null;
+
+setStatus();
+
+function setStatus(message = "", tone = "info") {
+  if (!statusBanner) {
+    return;
+  }
+
+  statusBanner.textContent = message;
+  statusBanner.style.display = message ? "block" : "none";
+
+  let background = "rgba(255,255,255,0.85)";
+  let color = "#333333";
+
+  if (tone === "warning") {
+    background = "#fff4e5";
+    color = "#b35b00";
+  } else if (tone === "error") {
+    background = "#fdecea";
+    color = "#b3261e";
+  } else if (tone === "success") {
+    background = "#e8f5e9";
+    color = "#256029";
+  }
+
+  statusBanner.style.backgroundColor = background;
+  statusBanner.style.color = color;
+  statusBanner.style.padding = message ? "0.75rem 1rem" : "0";
+  statusBanner.style.borderRadius = message ? "12px" : "0";
+  statusBanner.style.marginBottom = message ? "1rem" : "0";
+}
+
+function handleRequestFailure(isRevision, status, responseText) {
+  const isTimeout = status === 504 ||
+    (typeof responseText === "string" && responseText.includes("openai_timeout"));
+
+  if (isTimeout) {
+    setStatus(
+      "OpenAI timed out after 15 seconds. Try shortening your prompt or resubmitting in a bit.",
+      "warning"
+    );
+  } else {
+    setStatus(
+      "Something went wrong while talking to the builder. Please try again.",
+      "error"
+    );
+  }
+
+  document.getElementById("Error").play();
+
+  if (isRevision) {
+    reviseBtn.innerText = "Try Again";
+    reviseBtn.style.backgroundColor = "#c13e3c";
+  } else {
+    sendBtn.innerText = "Try Again";
+    sendBtn.style.backgroundColor = "#c13e3c";
+  }
+}
 
 // Prompt button functionality
 sendBtn.addEventListener("click", function (event) {
@@ -26,10 +88,13 @@ sendBtn.addEventListener("click", function (event) {
   revise_bool = false;
   previous_prompt = userPrompt;
 
+  setStatus("Generating a new build…", "info");
+
   // Send an Ajax request to the server
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/", true);
   xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+  xhr.timeout = 20000;
   xhr.onload = function () {
     if (xhr.status === 200) {
       // Update the HTML content with the response from the server
@@ -39,9 +104,19 @@ sendBtn.addEventListener("click", function (event) {
 
       // Offload specifics of response handling
       handleResponse(response.result, revise_bool);
+      setStatus("Builder ready!", "success");
     } else {
       console.error("Request failed. Returned status of " + xhr.status);
+      handleRequestFailure(revise_bool, xhr.status, xhr.responseText);
     }
+  };
+  xhr.onerror = function () {
+    console.error("Network error while making request to the builder.");
+    handleRequestFailure(revise_bool, xhr.status || 0, xhr.responseText);
+  };
+  xhr.ontimeout = function () {
+    console.error("Client-side timeout waiting for builder response.");
+    handleRequestFailure(revise_bool, 504, "client_timeout");
   };
   xhr.send(
     JSON.stringify({
@@ -73,10 +148,13 @@ reviseBtn.addEventListener("click", (event) => {
 
   document.getElementById("Bricks").play();
 
+  setStatus("Revising the build…", "info");
+
   // Send an Ajax request to the server
   var xhr = new XMLHttpRequest();
   xhr.open("POST", "/", true);
   xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+  xhr.timeout = 20000;
   xhr.onload = function () {
     if (xhr.status === 200) {
       // Update the HTML content with the response from the server
@@ -85,9 +163,19 @@ reviseBtn.addEventListener("click", (event) => {
 
       // Offload specifics of response handling
       handleResponse(response.result, revise_bool);
+      setStatus("Revision applied!", "success");
     } else {
       console.error("Request failed. Returned status of " + xhr.status);
+      handleRequestFailure(revise_bool, xhr.status, xhr.responseText);
     }
+  };
+  xhr.onerror = function () {
+    console.error("Network error while making request to the builder.");
+    handleRequestFailure(revise_bool, xhr.status || 0, xhr.responseText);
+  };
+  xhr.ontimeout = function () {
+    console.error("Client-side timeout waiting for builder response.");
+    handleRequestFailure(revise_bool, 504, "client_timeout");
   };
   // Call your API function and pass the shape string as a parameter
   xhr.send(
@@ -158,13 +246,23 @@ function handleResponse(apireturn, revise_bool) {
 
     if (!scenetag) {
       entityEl = tempDiv.querySelector("a-entity");
-      entityContents = entityEl.innerHTML;
+      if (entityEl) {
+        entityContents = entityEl.innerHTML;
+      }
       includes_scene = false;
     } else {
       entityEl = tempDiv.querySelector("a-scene");
-
-      entityContents = entityEl.innerHTML;
+      if (entityEl) {
+        entityContents = entityEl.innerHTML;
+      }
       includes_scene = false;
+    }
+
+    if (!entityEl) {
+      console.warn("API response did not include an a-scene or a-entity wrapper; wrapping in default entity.");
+      entityEl = document.createElement("a-entity");
+      entityEl.innerHTML = apireturn;
+      entityContents = entityEl.innerHTML;
     }
 
     // console.log(entityContents);
@@ -176,9 +274,10 @@ function handleResponse(apireturn, revise_bool) {
     // This only works to clean the last object whatever it is
     if (revise_bool) {
       // console.log("this request is a revision");
-      const myEntity = document.querySelector("#new-object");
-      const parentEntity = myEntity.parentNode;
-      parentEntity.removeChild(myEntity);
+      if (latestAssembly && latestAssembly.parentNode) {
+        latestAssembly.emit("assembly-removed");
+        latestAssembly.parentNode.removeChild(latestAssembly);
+      }
       saveData(previous_prompt,apireturn, iteration, false, true, userPrompt);
     } else {
       saveData(userPrompt,apireturn, iteration);
@@ -187,14 +286,50 @@ function handleResponse(apireturn, revise_bool) {
 
     // Add new entity
     var pyramid = document.createElement("a-entity");
-    pyramid.setAttribute("id", "new-object");
+    pyramid.setAttribute("movable-group", "");
+    pyramid.classList.add("generated-assembly");
+    pyramid.dataset.prompt = userPrompt || "";
 
-    // Append each child element of the temporary div to the scene
+    // Wrap generated content so local origin stays consistent
+    const contentWrapper = document.createElement("a-entity");
+    contentWrapper.classList.add("assembly-content-wrapper");
+    pyramid.appendChild(contentWrapper);
+
+    // Append each child element of the temporary div to the wrapper
     while (entityEl.firstChild) {
-      pyramid.appendChild(entityEl.firstChild);
+      contentWrapper.appendChild(entityEl.firstChild);
     }
 
+    const label = document.createElement("a-entity");
+    label.setAttribute("text", "value", userPrompt || "");
+    label.setAttribute("text", "align", "center");
+    label.setAttribute("text", "color", "#333333");
+    label.setAttribute("text", "width", 2);
+    label.setAttribute("text", "wrapCount", 24);
+    label.setAttribute("position", "0 1 0");
+    label.setAttribute(
+      "geometry",
+      "primitive: plane; height: 0.2; width: 1.4"
+    );
+    label.setAttribute(
+      "material",
+      "color: #ffffff; opacity: 0.88"
+    );
+    label.setAttribute("visible", "false");
+
+    pyramid.addEventListener("mouseenter", () => {
+      label.setAttribute("visible", "true");
+    });
+    pyramid.addEventListener("mouseleave", () => {
+      label.setAttribute("visible", "false");
+    });
+
+    pyramid.appendChild(label);
+
     scene.appendChild(pyramid);
+    latestAssembly = pyramid;
+
+    positionLabelWithRetry(contentWrapper, label);
 
     // Hide the loading bar after the API call is complete
     sendBtn.innerText = "Send!";
@@ -215,8 +350,50 @@ function handleResponse(apireturn, revise_bool) {
     console.error(err);
 
     document.getElementById("Error").play();
+    setStatus("We couldn't render that response. Please try again.", "error");
   }
 }
+
+function positionLabelWithRetry(wrapper, label, retries = 5, delay = 100) {
+  if (adjustLabelPosition(wrapper, label)) {
+    return;
+  }
+
+  if (retries <= 0) {
+    return;
+  }
+
+  setTimeout(() => positionLabelWithRetry(wrapper, label, retries - 1, delay), delay);
+}
+
+function adjustLabelPosition(wrapper, label) {
+  if (!wrapper || !label) {
+    return false;
+  }
+
+  const object3D = wrapper.object3D;
+  if (!object3D) {
+    return false;
+  }
+
+  object3D.updateMatrixWorld(true);
+
+  const box = new THREE.Box3().setFromObject(object3D);
+
+  if (!isFinite(box.max.y) || !isFinite(box.min.y)) {
+    return false;
+  }
+
+  if (box.isEmpty()) {
+    return false;
+  }
+
+  const topY = box.max.y;
+  label.setAttribute("position", `0 ${topY + 0.1} 0`);
+
+  return true;
+}
+
 
 function showRevise() {
   const revise_group = document.querySelector("#revise-group");
