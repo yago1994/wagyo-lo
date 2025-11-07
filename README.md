@@ -18,7 +18,7 @@ Wagyo Lo is a Fastify application that renders a Handlebars view and exposes a J
 
 2. Visit `http://localhost:3000` to access the UI. The root route renders `index.hbs`, which includes the input form and client scripts under `public/`.
 
-3. Submitting the form triggers `apicall.js`, which shows a loading state and sends the prompt to the Fastify POST endpoint (`/`). The server logs the inbound payload, forwards it to OpenAI, and returns the generated code as JSON.
+3. Submitting the form triggers the client logic in `public/ui-control.js`, which shows a loading state and sends the prompt to the Fastify POST endpoint (`/`). The server logs the inbound payload, forwards it to OpenAI, and returns the generated code as JSON.
 
 4. The API response is parsed client-side, converted into DOM nodes, and injected into the live A-Frame scene. Revisions pass the previous response back to the server so OpenAI can build upon existing code.
 
